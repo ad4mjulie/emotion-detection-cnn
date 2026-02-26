@@ -1,24 +1,31 @@
+import sys
+from unittest.mock import MagicMock
+
+# Robust mock for _lzma to satisfy the lzma standard library on macOS environments missing the C extension
+mock_lzma = MagicMock()
+# Constants expected by lzma.py
+for name in ['FORMAT_XZ', 'FORMAT_ALONE', 'FORMAT_RAW', 'FORMAT_AUTO', 
+            'CHECK_NONE', 'CHECK_CRC32', 'CHECK_CRC64', 'CHECK_SHA256',
+            'FILTER_LZMA1', 'FILTER_LZMA2', 'FILTER_DELTA', 'FILTER_X86', 'FILTER_IA64', 
+            'FILTER_ARM', 'FILTER_ARMTHUMB', 'FILTER_SPARC', 'FILTER_POWERPC',
+            'MF_BT2', 'MF_BT3', 'MF_BT4', 'MF_HC3', 'MF_HC4', 'MODE_READ', 'MODE_WRITE']:
+    setattr(mock_lzma, name, 1)
+sys.modules['_lzma'] = mock_lzma
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
-import pandas as pd
-import numpy as np
-from model import EmotionCNN
-import os
-
-from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
 from torchvision import transforms
-import torch
-import torch.nn as nn
-import torch.optim as optim
+from torchvision.datasets import ImageFolder
+import numpy as np
+import pandas as pd
 from model import EmotionCNN
 import os
 
+
 def train():
-    """Training the CNN using the local image dataset in the 'archive' folder."""
+    """Train the CNN using the local image dataset in the 'archive' folder."""
     base_dir = 'archive'
     train_dir = os.path.join(base_dir, 'train')
     test_dir = os.path.join(base_dir, 'test')

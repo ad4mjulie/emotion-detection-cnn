@@ -1,3 +1,17 @@
+import sys
+from unittest.mock import MagicMock
+
+# Robust mock for _lzma to satisfy the lzma standard library on macOS environments missing the C extension
+mock_lzma = MagicMock()
+# Constants expected by lzma.py
+for name in ['FORMAT_XZ', 'FORMAT_ALONE', 'FORMAT_RAW', 'FORMAT_AUTO', 
+            'CHECK_NONE', 'CHECK_CRC32', 'CHECK_CRC64', 'CHECK_SHA256',
+            'FILTER_LZMA1', 'FILTER_LZMA2', 'FILTER_DELTA', 'FILTER_X86', 'FILTER_IA64', 
+            'FILTER_ARM', 'FILTER_ARMTHUMB', 'FILTER_SPARC', 'FILTER_POWERPC',
+            'MF_BT2', 'MF_BT3', 'MF_BT4', 'MF_HC3', 'MF_HC4', 'MODE_READ', 'MODE_WRITE']:
+    setattr(mock_lzma, name, 1)
+sys.modules['_lzma'] = mock_lzma
+
 import cv2
 import argparse
 import sys
