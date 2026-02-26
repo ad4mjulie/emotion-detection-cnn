@@ -3,8 +3,11 @@ import os
 from model import EmotionCNN
 
 def get_emotion_labels():
-    """Returns the ordered list of emotion labels matching the CNN output."""
-    return ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral']
+    """
+    Returns the ordered list of emotion labels.
+    Must match the alphabetical folder order used in train.py (ImageFolder).
+    """
+    return ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
 
 def load_model(model_path='emotion_model.pth'):
     """
