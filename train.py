@@ -70,11 +70,34 @@ def train():
     
     # Initialize model
     model = EmotionCNN(num_classes=len(train_dataset.classes)).to(device)
+    
+    # RESUME SUPPORT: Load existing weights if they exist
+    model_path = 'emotion_model.pth'
+    if os.path.exists(model_path):
+        print(f"Loading existing model from {model_path} to resume training...")
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        
+        # Initial validation to set the baseline best accuracy
+        model.eval()
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for images, labels in test_loader:
+                images, labels = images.to(device), labels.to(device)
+                outputs = model(images)
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+        best_acc = 100 * correct / total
+        print(f"Starting with baseline accuracy: {best_acc:.2f}%")
+    else:
+        print("No existing model found. Starting training from scratch.")
+        best_acc = 0.0
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     print(f"Starting training on {device} using local image files...")
-    best_acc = 0.0
 
     for epoch in range(epochs):
         model.train()
