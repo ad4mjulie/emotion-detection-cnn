@@ -96,6 +96,7 @@ def train():
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
 
     print(f"Starting training on {device} using local image files...")
 
@@ -131,6 +132,9 @@ def train():
 
         acc = 100 * correct / total
         print(f"Validation Accuracy: {acc:.2f}%")
+        
+        # Step the scheduler based on validation accuracy
+        scheduler.step(acc)
 
         if acc > best_acc:
             best_acc = acc

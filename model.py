@@ -16,63 +16,73 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class ResidualBlock(nn.Module):
+    """
+    A standard Residual Block with two convolutional layers and a shortcut connection.
+    """
+    def __init__(self, in_channels, out_channels, stride=1):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.elu = nn.ELU(inplace=True)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels)
+            )
+
+    def forward(self, x):
+        out = self.elu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = self.elu(out)
+        return out
+
 class EmotionCNN(nn.Module):
     """
-    CNN Architecture designed for 48x48 grayscale input.
-    Based on standard architectures for the FER-2013 dataset.
+    Advanced CNN Architecture using Residual Blocks and Global Average Pooling.
+    Designed for 48x48 grayscale input.
     """
     def __init__(self, num_classes=7):
         super(EmotionCNN, self).__init__()
         
-        # Block 1
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=3, padding=1)
+        self.in_channels = 64
+        
+        # Initial Convolution
+        self.conv1 = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.drop1 = nn.Dropout(0.25)
+        self.elu = nn.ELU(inplace=True)
         
-        # Block 2
-        self.conv2 = nn.Conv2d(64, 128, kernel_size=5, padding=2)
-        self.bn2 = nn.BatchNorm2d(128)
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.drop2 = nn.Dropout(0.25)
+        # Residual Layers
+        self.layer1 = self._make_layer(64, 2, stride=1)
+        self.layer2 = self._make_layer(128, 2, stride=2)
+        self.layer3 = self._make_layer(256, 2, stride=2)
+        self.layer4 = self._make_layer(512, 2, stride=2)
         
-        # Block 3
-        self.conv3 = nn.Conv2d(128, 512, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(512)
-        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.drop3 = nn.Dropout(0.25)
-        
-        # Block 4
-        self.conv4 = nn.Conv2d(512, 512, kernel_size=3, padding=1)
-        self.bn4 = nn.BatchNorm2d(512)
-        self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.drop4 = nn.Dropout(0.25)
-        
-        # Flatten and Dense layers
-        # Input 48x48 -> Pool1 (24x24) -> Pool2 (12x12) -> Pool3 (6x6) -> Pool4 (3x3)
-        self.fc1 = nn.Linear(512 * 3 * 3, 256)
-        self.bn_fc1 = nn.BatchNorm1d(256)
-        self.drop_fc1 = nn.Dropout(0.5)
-        
-        self.fc2 = nn.Linear(256, 512)
-        self.bn_fc2 = nn.BatchNorm1d(512)
-        self.drop_fc2 = nn.Dropout(0.5)
-        
-        self.output = nn.Linear(512, num_classes)
+        # Global Average Pooling + Output
+        self.gap = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512, num_classes)
+
+    def _make_layer(self, out_channels, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(ResidualBlock(self.in_channels, out_channels, stride))
+            self.in_channels = out_channels
+        return nn.Sequential(*layers)
 
     def forward(self, x):
-        # Convolutional layers
-        x = self.drop1(self.pool1(F.elu(self.bn1(self.conv1(x)))))
-        x = self.drop2(self.pool2(F.elu(self.bn2(self.conv2(x)))))
-        x = self.drop3(self.pool3(F.elu(self.bn3(self.conv3(x)))))
-        x = self.drop4(self.pool4(F.elu(self.bn4(self.conv4(x)))))
-        
-        # Flatten
-        x = x.view(-1, 512 * 3 * 3)
-        
-        # Fully connected layers
-        x = self.drop_fc1(F.elu(self.bn_fc1(self.fc1(x))))
-        x = self.drop_fc2(F.elu(self.bn_fc2(self.fc2(x))))
-        
-        x = self.output(x)
-        return x
+        out = self.elu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = self.gap(out)
+        out = out.view(out.size(0), -1)
+        out = self.fc(out)
+        return out
+
