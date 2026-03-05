@@ -3,10 +3,11 @@
 A fully offline Python project that detects human faces and classifies their emotions using a Convolutional Neural Network (CNN) built with PyTorch.
 
 ## Features
+- **High-Quality Face Detection**: Uses MediaPipe Face Detection for superior accuracy compared to standard Haar Cascades.
+- **Enhanced Training Pipeline**: Supports class-weighted training, OneCycleLR learning rate schedule, and advanced data augmentation.
+- **Detailed Metrics**: Tracks Macro-F1, per-class precision/recall/F1, and validation loss.
 - **Real-time Detection**: Live webcam feed with bounding boxes and emotion labels.
-- **Image Mode**: Run inference on a single image file.
 - **Offline Support**: Works entirely without an internet connection once dependencies and models are loaded.
-- **Trainable**: Includes a script to train or fine-tune the model using the FER-2013 dataset.
 
 ## Setup Instructions
 
@@ -16,27 +17,26 @@ Ensure you have Python 3.8+ installed on your system.
 ### 2. Environment Setup
 Create a virtual environment and install dependencies:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+python -m venv .venv
+source .venv/bin/activate  # On Windows use `.venv\Scripts\activate`
 pip install -r requirements.txt
 ```
 
 ### 3. Training (Optional)
-This project is designed to run with `emotion_model.pth`. If you don't have a pretrained weight file:
-1. Download the `fer2013.csv` dataset (e.g., from Kaggle).
-2. Place it in the project root directory.
-3. Run the training script:
+This project is designed to run with `emotion_model.pth`. If you want to train from scratch or fine-tune:
+1. Ensure your dataset is in the `archive/` folder with `train` and `test` subdirectories.
+2. Run the training script:
    ```bash
    python train.py
    ```
-This will save the best model weights as `emotion_model.pth`.
+The script will save the best model based on **Macro-F1** score to ensure robustness against class imbalance.
 
 ## Usage
 
 ### Live Webcam Mode
 To start real-time emotion detection:
 ```bash
-python main.py
+source .venv/bin/activate && python main.py
 ```
 - Press **'q'** to exit the webcam window.
 
@@ -48,11 +48,12 @@ python main.py --image path/to/your/image.jpg
 
 ## Project Structure
 - `main.py`: Entry point for webcam and image inference.
-- `model.py`: PyTorch architecture of the CNN.
+- `model.py`: Advanced CNN architecture with Residual Blocks.
 - `model_loader.py`: Handles model initialization and weight loading.
-- `utils.py`: Contains logic for face detection (OpenCV Haar Cascade), preprocessing (48x48 grayscale), and drawing results.
-- `train.py`: Script to train the CNN on the FER-2013 dataset.
+- `utils.py`: Contains logic for face detection (MediaPipe), preprocessing (48x48 normalization), and drawing.
+- `train.py`: Enhanced script to train/fine-tune the CNN.
 
-## Extending the Project
-- **New Emotions**: Update the labels in `model_loader.py` and the `num_classes` parameter in `model.py`.
-- **Better Detection**: Replace the Haar Cascade in `utils.py` with a more advanced detector like MTCNN or MediaPipe for improved robustness.
+## Recent Improvements
+- **Face Detection**: Migrated from OpenCV Haar Cascades to **MediaPipe** for better multi-angle and lighting support.
+- **Optimization**: Implemented **AdamW** and **OneCycleLR** for faster and more stable convergence.
+- **Data Augmentation**: Added RandomAffine, ColorJitter, and RandomErasing to reduce overfitting.
