@@ -3,18 +3,35 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-# Load the Haar Cascade for face detection (standard in OpenCV)
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+import mediapipe as mp
+
+# Initialize MediaPipe Face Detection
+mp_face_detection = mp.solutions.face_detection
+face_detection = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
 def detect_faces(frame):
-    """Detects faces in a frame and returns bounding boxes."""
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.3,
-        minNeighbors=5,
-        minSize=(30, 30)
-    )
+    """Detects faces in a frame using MediaPipe and returns bounding boxes (x, y, w, h)."""
+    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = face_detection.process(image_rgb)
+    
+    faces = []
+    if results.detections:
+        h, w, _ = frame.shape
+        for detection in results.detections:
+            bbox = detection.location_data.relative_bounding_box
+            x = int(bbox.xmin * w)
+            y = int(bbox.ymin * h)
+            width = int(bbox.width * w)
+            height = int(bbox.height * h)
+            
+            # Ensure coordinates are within image bounds
+            x = max(0, x)
+            y = max(0, y)
+            width = min(width, w - x)
+            height = min(height, h - y)
+            
+            faces.append((x, y, width, height))
+            
     return faces
 
 def preprocess_face(frame, face_coords):
@@ -30,7 +47,8 @@ def preprocess_face(frame, face_coords):
     roi_resized = cv2.resize(roi_gray, (48, 48), interpolation=cv2.INTER_AREA)
     
     # Convert to NumPy float32 and normalize
-    roi_norm = roi_resized.astype('float32') / 255.0
+    # Consistent with training: (x / 255.0 - 0.5) / 0.5
+    roi_norm = (roi_resized.astype('float32') / 255.0 - 0.5) / 0.5
     
     # Convert to PyTorch Tensor: (Channels, Height, Width)
     roi_tensor = torch.from_numpy(roi_norm).unsqueeze(0).unsqueeze(0)
