@@ -16,12 +16,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision import transforms
-from torchvision.datasets import ImageFolder
+from torchvision import transforms, datasets
 import numpy as np
 import pandas as pd
 from model import EmotionCNN
 import os
+from sklearn.metrics import classification_report, confusion_matrix, f1_score
 
 
 def train():
@@ -38,8 +38,9 @@ def train():
     # Hyperparameters
     batch_size = 64
     lr = 0.001
-    epochs = 30
+    epochs = 100
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    early_stopping_patience = 15
 
     # Transforms (Normalization + Augmentation)
     # The models expects 48x48 grayscale
@@ -48,8 +49,11 @@ def train():
         transforms.Resize((48, 48)),
         transforms.RandomHorizontalFlip(),
         transforms.RandomRotation(15),
+        transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2),
         transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))
+        transforms.Normalize((0.5,), (0.5,)),
+        transforms.RandomErasing(p=0.2, scale=(0.02, 0.1), ratio=(0.3, 3.3), value=0, inplace=False)
     ])
 
     test_transform = transforms.Compose([
@@ -60,13 +64,21 @@ def train():
     ])
 
     # Load dataset using ImageFolder
-    train_dataset = ImageFolder(root=train_dir, transform=train_transform)
-    test_dataset = ImageFolder(root=test_dir, transform=test_transform)
+    train_dataset = datasets.ImageFolder(root=train_dir, transform=train_transform)
+    test_dataset = datasets.ImageFolder(root=test_dir, transform=test_transform)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
 
     print(f"Classes found: {train_dataset.classes}")
+    
+    # Calculate class weights for imbalance
+    targets = np.array(train_dataset.targets)
+    class_counts = np.bincount(targets)
+    weights = 1.0 / class_counts
+    weights = weights / weights.sum() * len(class_counts)
+    class_weights = torch.FloatTensor(weights).to(device)
+    print(f"Class weights: {dict(zip(train_dataset.classes, weights))}")
     
     # Initialize model
     model = EmotionCNN(num_classes=len(train_dataset.classes)).to(device)
@@ -94,11 +106,17 @@ def train():
         print("No existing model found. Starting training from scratch.")
         best_acc = 0.0
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    # OneCycleLR instead of generic plateau for better convergence
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, 
+                                             steps_per_epoch=len(train_loader), 
+                                             epochs=epochs)
 
     print(f"Starting training on {device} using local image files...")
+    
+    no_improve_epochs = 0
+    best_f1 = 0.0
 
     for epoch in range(epochs):
         model.train()
@@ -114,32 +132,55 @@ def train():
             optimizer.step()
             
             running_loss += loss.item()
+            scheduler.step()
+            
             if i % 100 == 99:
                 print(f"Epoch [{epoch+1}/{epochs}], Step [{i+1}/{len(train_loader)}], Loss: {running_loss/100:.4f}")
                 running_loss = 0.0
 
         # Validation
         model.eval()
-        correct = 0
-        total = 0
+        all_preds = []
+        all_labels = []
+        val_loss = 0.0
+        
         with torch.no_grad():
             for images, labels in test_loader:
                 images, labels = images.to(device), labels.to(device)
                 outputs = model(images)
+                loss = criterion(outputs, labels)
+                val_loss += loss.item()
+                
                 _, predicted = torch.max(outputs.data, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
+                all_preds.extend(predicted.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
 
-        acc = 100 * correct / total
-        print(f"Validation Accuracy: {acc:.2f}%")
+        # Metrics calculation
+        acc = 100.0 * np.sum(np.array(all_preds) == np.array(all_labels)) / len(all_labels)
+        macro_f1 = f1_score(all_labels, all_preds, average='macro')
         
-        # Step the scheduler based on validation accuracy
-        scheduler.step(acc)
-
-        if acc > best_acc:
+        print(f"\n--- Epoch {epoch+1} Results ---")
+        print(f"Validation Accuracy: {acc:.2f}%")
+        print(f"Validation Macro-F1: {macro_f1:.4f}")
+        print(f"Validation Loss: {val_loss/len(test_loader):.4f}")
+        
+        # Save best model based on macro-F1 (better for imbalance)
+        if macro_f1 > best_f1:
+            best_f1 = macro_f1
             best_acc = acc
             torch.save(model.state_dict(), 'emotion_model.pth')
-            print("Model saved to emotion_model.pth!")
+            print(">>> Best Macro-F1 improved! Model saved to emotion_model.pth")
+            no_improve_epochs = 0
+            
+            # Print detailed report for best model
+            print("\nClassification Report:")
+            print(classification_report(all_labels, all_preds, target_names=train_dataset.classes))
+        else:
+            no_improve_epochs += 1
+            
+        if no_improve_epochs >= early_stopping_patience:
+            print(f"Early stopping triggered after {epoch+1} epochs.")
+            break
 
     print("Training finished.")
 
